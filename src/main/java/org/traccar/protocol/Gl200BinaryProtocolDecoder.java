@@ -15,7 +15,6 @@
  */
 package org.traccar.protocol;
 
-import com.google.common.primitives.Longs;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
@@ -48,6 +47,15 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         return dateBuilder.getDate();
     }
 
+    private String decodeDeviceId(ByteBuf buf){
+        String devId = "";
+        for (int i= 0; i<8; i++ )
+                devId = devId + String.format("%02d",buf.readUnsignedByte());
+
+        System.out.println(devId);
+        return devId;
+    }
+
     public static final int MSG_RSP_LCB = 3;
     public static final int MSG_RSP_GEO = 8;
     public static final int MSG_RSP_COMPRESSED = 100;
@@ -64,7 +72,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         buf.readUnsignedShort(); // protocol version
         buf.readUnsignedShort(); // firmware version
 
-        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, String.format("%015d", buf.readLong()));
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
         }
@@ -86,7 +94,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
 
         if (type == MSG_RSP_LCB) {
             buf.readUnsignedByte(); // phone length
-            for (int b = buf.readUnsignedByte();; b = buf.readUnsignedByte()) {
+            for (int b = buf.readUnsignedByte(); ; b = buf.readUnsignedByte()) {
                 if ((b & 0xf) == 0xf || (b & 0xf0) == 0xf0) {
                     break;
                 }
@@ -217,7 +225,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
 
         position.set(Position.KEY_VERSION_FW, String.valueOf(buf.readUnsignedShort()));
 
-        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, String.format("%015d", buf.readLong()));
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
         }
@@ -319,7 +327,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         buf.readUnsignedInt(); // mask
         buf.readUnsignedShort(); // length
 
-        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, String.format("%015d", buf.readLong()));
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
         }
@@ -387,76 +395,117 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
     public static final int MSG_OBD_OPN = 1;
     public static final int MSG_OBD_OPF = 2;
 
-    private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf){
+    private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf) {
 
         Position position = new Position(getProtocolName());
 
         int type = buf.readUnsignedByte();
-        boolean[] maskBite = toBinary(buf.readUnsignedInt(),8);
+        boolean[] maskBite = toBinary(buf.readUnsignedInt(), 8);
 
-        if(maskBite[maskBite.length-1]){
+        if (maskBite[maskBite.length - 1]) {
             buf.readUnsignedShort(); // length
         }
-        if(maskBite[maskBite.length-3]){
+        if (maskBite[maskBite.length - 3]) {
             buf.readUnsignedByte(); // device type
         }
-        if(maskBite[maskBite.length-4]){
+        if (maskBite[maskBite.length - 4]) {
             buf.readUnsignedShort(); // protocol version
         }
-        if(maskBite[maskBite.length-5]){
+        if (maskBite[maskBite.length - 5]) {
             buf.readUnsignedShort(); // firmware version
         }
 
-        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, String.format("%015d", buf.readLong()));
+
+//        long deviId = buf.readLong();
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress,  decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
         }
-        if(maskBite[maskBite.length-8]){
+        if (maskBite[maskBite.length - 8]) {
             buf.skipBytes(17); // vin num
         }
         int reportType = buf.readUnsignedByte();
 
-        boolean[] obdMask = toBinary(buf.readUnsignedInt(),32);
+        boolean[] obdMask = toBinary(buf.readUnsignedInt(), 32);
+
 
         position.setDeviceId(deviceSession.getDeviceId());
 
-        buf.skipBytes(17); // vin num
-        position.set("obdConnection", buf.readUnsignedByte());
-        position.set(Position.KEY_POWER, buf.readUnsignedShort());
-        position.set("supportPIDs", buf.readUnsignedShort());
-        position.set(Position.KEY_RPM, buf.readUnsignedShort());
-        position.set(Position.KEY_OBD_SPEED, buf.readUnsignedShort());
-        position.set(Position.KEY_COOLANT_TEMP, buf.readShort());
-        position.set(Position.KEY_FUEL_CONSUMPTION, buf.readUnsignedShort());
-        position.set(Position.KEY_DTCS, buf.readUnsignedShort());
-        position.set("milDistance", buf.readUnsignedShort());
-        position.set("milStatus", buf.readUnsignedByte());
-
-        int dtsNumbers = buf.readUnsignedByte();
-        for (int i = 0; i < dtsNumbers; i++) {
-            position.set("dts"+ i, buf.readUnsignedShort());
+        if (obdMask[obdMask.length - 1]) {
+            buf.skipBytes(17); // vin num
         }
-        position.set(Position.KEY_THROTTLE, buf.readUnsignedByte());
-        position.set(Position.KEY_ENGINE_LOAD, buf.readUnsignedByte());
-        position.set(Position.KEY_FUEL_LEVEL, buf.readUnsignedByte());
+        if (obdMask[obdMask.length - 2]) {
+            int obdConnect = buf.readUnsignedByte();
+            position.set("obdConnection", obdConnect);
+        }
+        if (obdMask[obdMask.length - 3]) {
+            int power = buf.readUnsignedShort();
+            position.set(Position.KEY_POWER, power);
+        }
+        if (obdMask[obdMask.length - 4]) {
+            position.set("supportPIDs", buf.readUnsignedInt());
+        }
+        if (obdMask[obdMask.length - 5])
+            position.set(Position.KEY_RPM, buf.readUnsignedShort());
+        if (obdMask[obdMask.length - 6])
+            position.set(Position.KEY_OBD_SPEED, buf.readUnsignedShort());
+        if (obdMask[obdMask.length - 7])
+            position.set(Position.KEY_COOLANT_TEMP, buf.readShort());
+        if (obdMask[obdMask.length - 8]){
+            int fuelCons = buf.readUnsignedShort();
+            position.set(Position.KEY_FUEL_CONSUMPTION, fuelCons);
+        }
+
+        if (obdMask[obdMask.length - 9])
+            position.set(Position.KEY_DTCS, buf.readUnsignedShort());
+        if (obdMask[obdMask.length - 10])
+            position.set("milDistance", buf.readUnsignedShort());
+        if (obdMask[obdMask.length - 11])
+            position.set("milStatus", buf.readUnsignedByte());
+
+        if (obdMask[obdMask.length - 12]) {
+            int dtsNumbers = buf.readUnsignedByte();
+            for (int i = 0; i < dtsNumbers; i++) {
+                position.set("dts" + i, buf.readUnsignedShort());
+            }
+            if( dtsNumbers == 0 )
+                buf.readUnsignedShort();
+        }
+        if (obdMask[obdMask.length - 14])
+            position.set(Position.KEY_THROTTLE, buf.readUnsignedByte());
+        if (obdMask[obdMask.length - 15])
+            position.set(Position.KEY_ENGINE_LOAD, buf.readUnsignedByte());
+        if (obdMask[obdMask.length - 16]){
+            position.set(Position.KEY_FUEL_LEVEL, buf.readUnsignedByte());
+        }
 
 
-        position.setValid(true);
-        position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedMedium() * 0.1));
-        position.setCourse(buf.readUnsignedShort());
-        position.setAltitude(buf.readShort());
-        position.setLongitude(buf.readInt() * 0.000001);
-        position.setLatitude(buf.readInt() * 0.000001);
 
-        position.setTime(decodeTime(buf));
+        if (obdMask[obdMask.length - 20]){
+            position.set("other",buf.readUnsignedShort());
+        }
 
-        position.setNetwork(new Network(CellTower.from(
-                buf.readUnsignedShort(), buf.readUnsignedShort(),
-                buf.readUnsignedShort(), buf.readUnsignedShort())));
 
-        buf.readUnsignedByte(); // reserved
 
-        position.set(Position.KEY_TOTAL_DISTANCE,buf.readUnsignedInt());
+        if (obdMask[obdMask.length - 21]) {
+            buf.readUnsignedByte();
+            position.setValid(true);
+            position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedMedium() * 0.1));
+            position.setCourse(buf.readUnsignedShort());
+            position.setAltitude(buf.readShort());
+            position.setLongitude(buf.readInt() * 0.000001);
+            position.setLatitude(buf.readInt() * 0.000001);
+            position.setTime( decodeTime(buf));
+        }
+        if (obdMask[obdMask.length - 22]) {
+            position.setNetwork(new Network(CellTower.from(
+                    buf.readUnsignedShort(), buf.readUnsignedShort(),
+                    buf.readUnsignedShort(), buf.readUnsignedShort())));
+            buf.readUnsignedByte(); // reserved
+        }
+
+        if (obdMask[obdMask.length - 23])
+            position.set(Position.KEY_TOTAL_DISTANCE, buf.readUnsignedInt());
 
         return position;
     }
