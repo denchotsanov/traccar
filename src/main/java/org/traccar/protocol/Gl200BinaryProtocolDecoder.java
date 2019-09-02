@@ -15,6 +15,7 @@
  */
 package org.traccar.protocol;
 
+import com.google.common.primitives.Longs;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
@@ -387,24 +388,85 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
     public static final int MSG_OBD_OPF = 2;
 
     private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf){
+
         Position position = new Position(getProtocolName());
 
         int type = buf.readUnsignedByte();
+        boolean[] maskBite = toBinary(buf.readUnsignedInt(),8);
 
-        buf.readUnsignedInt(); // mask
-        buf.readUnsignedShort(); // length
-        buf.readUnsignedByte(); // device type
-        buf.readUnsignedShort(); // protocol version
-        buf.readUnsignedShort(); // firmware version
+        if(maskBite[maskBite.length-1]){
+            buf.readUnsignedShort(); // length
+        }
+        if(maskBite[maskBite.length-3]){
+            buf.readUnsignedByte(); // device type
+        }
+        if(maskBite[maskBite.length-4]){
+            buf.readUnsignedShort(); // protocol version
+        }
+        if(maskBite[maskBite.length-5]){
+            buf.readUnsignedShort(); // firmware version
+        }
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, String.format("%015d", buf.readLong()));
         if (deviceSession == null) {
             return null;
         }
-        buf.skipBytes(17); // vin num
+        if(maskBite[maskBite.length-8]){
+            buf.skipBytes(17); // vin num
+        }
+        int reportType = buf.readUnsignedByte();
 
+        boolean[] obdMask = toBinary(buf.readUnsignedInt(),32);
+
+        position.setDeviceId(deviceSession.getDeviceId());
+
+        buf.skipBytes(17); // vin num
+        position.set("obdConnection", buf.readUnsignedByte());
+        position.set(Position.KEY_POWER, buf.readUnsignedShort());
+        position.set("supportPIDs", buf.readUnsignedShort());
+        position.set(Position.KEY_RPM, buf.readUnsignedShort());
+        position.set(Position.KEY_OBD_SPEED, buf.readUnsignedShort());
+        position.set(Position.KEY_COOLANT_TEMP, buf.readShort());
+        position.set(Position.KEY_FUEL_CONSUMPTION, buf.readUnsignedShort());
+        position.set(Position.KEY_DTCS, buf.readUnsignedShort());
+        position.set("milDistance", buf.readUnsignedShort());
+        position.set("milStatus", buf.readUnsignedByte());
+
+        int dtsNumbers = buf.readUnsignedByte();
+        for (int i = 0; i < dtsNumbers; i++) {
+            position.set("dts"+ i, buf.readUnsignedShort());
+        }
+        position.set(Position.KEY_THROTTLE, buf.readUnsignedByte());
+        position.set(Position.KEY_ENGINE_LOAD, buf.readUnsignedByte());
+        position.set(Position.KEY_FUEL_LEVEL, buf.readUnsignedByte());
+
+
+        position.setValid(true);
+        position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedMedium() * 0.1));
+        position.setCourse(buf.readUnsignedShort());
+        position.setAltitude(buf.readShort());
+        position.setLongitude(buf.readInt() * 0.000001);
+        position.setLatitude(buf.readInt() * 0.000001);
+
+        position.setTime(decodeTime(buf));
+
+        position.setNetwork(new Network(CellTower.from(
+                buf.readUnsignedShort(), buf.readUnsignedShort(),
+                buf.readUnsignedShort(), buf.readUnsignedShort())));
+
+        buf.readUnsignedByte(); // reserved
+
+        position.set(Position.KEY_TOTAL_DISTANCE,buf.readUnsignedInt());
 
         return position;
+    }
+
+    private static boolean[] toBinary(long number, int base) {
+        final boolean[] ret = new boolean[base];
+        for (int i = 0; i < base; i++) {
+            ret[base - 1 - i] = (1 << i & number) != 0;
+        }
+        return ret;
     }
 
     @Override
@@ -420,7 +482,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
                 return decodeInformation(channel, remoteAddress, buf);
             case "+EVT":
                 return decodeEvent(channel, remoteAddress, buf);
-            case "+ODB":
+            case "+OBD":
                 return decodeObd(channel, remoteAddress, buf);
             default:
                 return null;
