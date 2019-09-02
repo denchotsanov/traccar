@@ -382,6 +382,31 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         return position;
     }
 
+    public static final int MSG_OBD_OBD = 0;
+    public static final int MSG_OBD_OPN = 1;
+    public static final int MSG_OBD_OPF = 2;
+
+    private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf){
+        Position position = new Position(getProtocolName());
+
+        int type = buf.readUnsignedByte();
+
+        buf.readUnsignedInt(); // mask
+        buf.readUnsignedShort(); // length
+        buf.readUnsignedByte(); // device type
+        buf.readUnsignedShort(); // protocol version
+        buf.readUnsignedShort(); // firmware version
+
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, String.format("%015d", buf.readLong()));
+        if (deviceSession == null) {
+            return null;
+        }
+        buf.skipBytes(17); // vin num
+
+
+        return position;
+    }
+
     @Override
     protected Object decode(
             Channel channel, SocketAddress remoteAddress, Object msg) throws Exception {
@@ -395,6 +420,8 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
                 return decodeInformation(channel, remoteAddress, buf);
             case "+EVT":
                 return decodeEvent(channel, remoteAddress, buf);
+            case "+ODB":
+                return decodeObd(channel, remoteAddress, buf);
             default:
                 return null;
         }
