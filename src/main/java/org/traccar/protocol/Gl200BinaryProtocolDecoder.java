@@ -15,6 +15,7 @@
  */
 package org.traccar.protocol;
 
+import com.sun.javafx.image.impl.BaseIntToByteConverter;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
@@ -57,6 +58,14 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         return devId;
     }
 
+    private Double decodeSpeed(ByteBuf buf){
+        Double speed = (double)buf.readUnsignedShort();
+
+        speed = speed + (buf.readUnsignedByte() * 0.1);
+
+        return UnitsConverter.knotsFromKph( speed );
+    }
+
     public static final int MSG_RSP_LCB = 3;
     public static final int MSG_RSP_GEO = 8;
     public static final int MSG_RSP_COMPRESSED = 100;
@@ -89,7 +98,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             buf.skipBytes(17); // vin num
         }
         int battery = 0;
-        int power = 0;
+        double power = 0;
         int rpm = 0;
         int fuelConsumption = 0;
         int fuelLevel = 0;
@@ -98,7 +107,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             battery = buf.readUnsignedByte();
         }
         if (maskBite[maskBite.length - 13]) {
-            power = buf.readUnsignedShort();
+            power = buf.readUnsignedShort() * 0.001;
         }
         if (maskBite[maskBite.length - 15]) {
             rpm = buf.readUnsignedShort();
@@ -208,7 +217,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
                 position.setValid(hdop > 0);
                 position.set(Position.KEY_HDOP, hdop);
 
-                position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedMedium() * 0.1));
+                position.setSpeed(decodeSpeed(buf));
                 position.setCourse(buf.readUnsignedShort());
                 position.setAltitude(buf.readShort());
                 position.setLongitude(buf.readInt() * 0.000001);
@@ -325,7 +334,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         position.setValid(hdop > 0);
         position.set(Position.KEY_HDOP, hdop);
 
-        position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedMedium() * 0.1));
+        position.setSpeed(decodeSpeed(buf));
         position.setCourse(buf.readUnsignedShort());
         position.setAltitude(buf.readShort());
         position.setLongitude(buf.readInt() * 0.000001);
@@ -447,8 +456,6 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             buf.readUnsignedShort(); // firmware version
         }
 
-
-//        long deviId = buf.readLong();
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
@@ -520,8 +527,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         if (obdMask[obdMask.length - 21]) {
             buf.readUnsignedByte();
             position.setValid(true);
-            position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedShort() ));
-            buf.readUnsignedByte();
+            position.setSpeed(decodeSpeed(buf));
             position.setCourse(buf.readUnsignedShort());
             position.setAltitude(buf.readShort());
             position.setLongitude(buf.readInt() * 0.000001);
