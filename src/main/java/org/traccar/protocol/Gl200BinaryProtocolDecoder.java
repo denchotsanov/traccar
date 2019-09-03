@@ -203,7 +203,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
                 position.set(Position.KEY_FUEL_LEVEL, fuelLevel);
 
                 position.set(Position.KEY_SATELLITES, satellites);
-                position.setType("FRI");
+                position.set("type","FRI");
                 int hdop = buf.readUnsignedByte();
                 position.setValid(hdop > 0);
                 position.set(Position.KEY_HDOP, hdop);
@@ -430,7 +430,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
     private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf) {
 
         Position position = new Position(getProtocolName());
-        position.setType("OBD");
+        position.set("type","OBD");
         int type = buf.readUnsignedByte();
         boolean[] maskBite = toBinary(buf.readUnsignedInt(), 8);
 
@@ -520,7 +520,8 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         if (obdMask[obdMask.length - 21]) {
             buf.readUnsignedByte();
             position.setValid(true);
-            position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedMedium() * 0.1));
+            position.setSpeed(UnitsConverter.knotsFromKph(buf.readUnsignedShort() ));
+            buf.readUnsignedByte();
             position.setCourse(buf.readUnsignedShort());
             position.setAltitude(buf.readShort());
             position.setLongitude(buf.readInt() * 0.000001);
