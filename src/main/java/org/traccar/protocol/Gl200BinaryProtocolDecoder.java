@@ -47,11 +47,12 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         return dateBuilder.getDate();
     }
 
-    private String decodeDeviceId(ByteBuf buf){
+    private String decodeDeviceId(ByteBuf buf) {
         String devId = "";
-        for (int i= 0; i<8; i++ )
-                devId = devId + String.format("%02d",buf.readUnsignedByte());
+        for (int i = 0; i < 7; i++)
+            devId = devId + String.format("%02d", buf.readUnsignedByte());
 
+        devId = devId + buf.readUnsignedByte();
         System.out.println(devId);
         return devId;
     }
@@ -65,21 +66,49 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         List<Position> positions = new LinkedList<>();
 
         int type = buf.readUnsignedByte();
-
-        buf.readUnsignedInt(); // mask
-        buf.readUnsignedShort(); // length
-        buf.readUnsignedByte(); // device type
-        buf.readUnsignedShort(); // protocol version
-        buf.readUnsignedShort(); // firmware version
+        boolean[] maskBite = toBinary(buf.readUnsignedInt(), 32);
+        if (maskBite[maskBite.length - 8]) {
+            buf.readUnsignedShort(); // length
+        }
+        if (maskBite[maskBite.length - 9]) {
+            buf.readUnsignedByte(); // device type
+        }
+        if (maskBite[maskBite.length - 10]) {
+            buf.readUnsignedShort(); // protocol version
+        }
+        if (maskBite[maskBite.length - 11]) {
+            buf.readUnsignedShort(); // firmware version
+        }
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
         }
 
-        int battery = buf.readUnsignedByte();
-        int power = buf.readUnsignedShort();
+        if (maskBite[maskBite.length - 14]) {
+            buf.skipBytes(17); // vin num
+        }
+        int battery = 0;
+        int power = 0;
+        int rpm = 0;
+        int fuelConsumption = 0;
+        int fuelLevel = 0;
 
+        if (maskBite[maskBite.length - 12]) {
+            battery = buf.readUnsignedByte();
+        }
+        if (maskBite[maskBite.length - 13]) {
+            power = buf.readUnsignedShort();
+        }
+        if (maskBite[maskBite.length - 15]) {
+            rpm = buf.readUnsignedShort();
+        }
+        if (maskBite[maskBite.length - 16]) {
+            fuelConsumption = buf.readUnsignedShort();
+        }
+        if (maskBite[maskBite.length - 17]) {
+            fuelLevel = buf.readUnsignedByte();
+        }
         if (type == MSG_RSP_GEO) {
             buf.readUnsignedByte(); // reserved
             buf.readUnsignedByte(); // reserved
@@ -91,7 +120,6 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         if (type != MSG_RSP_COMPRESSED) {
             buf.readUnsignedByte(); // index
         }
-
         if (type == MSG_RSP_LCB) {
             buf.readUnsignedByte(); // phone length
             for (int b = buf.readUnsignedByte(); ; b = buf.readUnsignedByte()) {
@@ -170,8 +198,12 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
 
                 position.set(Position.KEY_BATTERY_LEVEL, battery);
                 position.set(Position.KEY_POWER, power);
-                position.set(Position.KEY_SATELLITES, satellites);
+                position.set(Position.KEY_RPM, rpm);
+                position.set(Position.KEY_FUEL_CONSUMPTION, fuelConsumption);
+                position.set(Position.KEY_FUEL_LEVEL, fuelLevel);
 
+                position.set(Position.KEY_SATELLITES, satellites);
+                position.setType("FRI");
                 int hdop = buf.readUnsignedByte();
                 position.setValid(hdop > 0);
                 position.set(Position.KEY_HDOP, hdop);
@@ -398,7 +430,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
     private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf) {
 
         Position position = new Position(getProtocolName());
-
+        position.setType("OBD");
         int type = buf.readUnsignedByte();
         boolean[] maskBite = toBinary(buf.readUnsignedInt(), 8);
 
@@ -417,7 +449,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
 
 
 //        long deviId = buf.readLong();
-        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress,  decodeDeviceId(buf));
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, decodeDeviceId(buf));
         if (deviceSession == null) {
             return null;
         }
@@ -451,7 +483,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             position.set(Position.KEY_OBD_SPEED, buf.readUnsignedShort());
         if (obdMask[obdMask.length - 7])
             position.set(Position.KEY_COOLANT_TEMP, buf.readShort());
-        if (obdMask[obdMask.length - 8]){
+        if (obdMask[obdMask.length - 8]) {
             int fuelCons = buf.readUnsignedShort();
             position.set(Position.KEY_FUEL_CONSUMPTION, fuelCons);
         }
@@ -468,23 +500,21 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             for (int i = 0; i < dtsNumbers; i++) {
                 position.set("dts" + i, buf.readUnsignedShort());
             }
-            if( dtsNumbers == 0 )
+            if (dtsNumbers == 0)
                 buf.readUnsignedShort();
         }
         if (obdMask[obdMask.length - 14])
             position.set(Position.KEY_THROTTLE, buf.readUnsignedByte());
         if (obdMask[obdMask.length - 15])
             position.set(Position.KEY_ENGINE_LOAD, buf.readUnsignedByte());
-        if (obdMask[obdMask.length - 16]){
+        if (obdMask[obdMask.length - 16]) {
             position.set(Position.KEY_FUEL_LEVEL, buf.readUnsignedByte());
         }
 
 
-
-        if (obdMask[obdMask.length - 20]){
-            position.set("other",buf.readUnsignedShort());
+        if (obdMask[obdMask.length - 20]) {
+            position.set("other", buf.readUnsignedShort());
         }
-
 
 
         if (obdMask[obdMask.length - 21]) {
@@ -495,7 +525,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             position.setAltitude(buf.readShort());
             position.setLongitude(buf.readInt() * 0.000001);
             position.setLatitude(buf.readInt() * 0.000001);
-            position.setTime( decodeTime(buf));
+            position.setTime(decodeTime(buf));
         }
         if (obdMask[obdMask.length - 22]) {
             position.setNetwork(new Network(CellTower.from(
