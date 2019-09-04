@@ -68,7 +68,7 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             devId = devId + String.format("%02d", buf.readUnsignedByte());
 
         devId = devId + buf.readUnsignedByte();
-        System.out.println(devId);
+
         return devId;
     }
 
