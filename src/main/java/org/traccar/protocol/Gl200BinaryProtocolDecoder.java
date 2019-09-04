@@ -28,6 +28,7 @@ import org.traccar.helper.UnitsConverter;
 import org.traccar.model.CellTower;
 import org.traccar.model.Network;
 import org.traccar.model.Position;
+import sun.security.util.BitArray;
 
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,19 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         return dateBuilder.getDate();
     }
 
+    private long readValue(ByteBuf buf, int length, boolean signed) {
+        switch (length) {
+            case 1:
+                return signed ? buf.readByte() : buf.readUnsignedByte();
+            case 2:
+                return signed ? buf.readShort() : buf.readUnsignedShort();
+            case 4:
+                return signed ? buf.readInt() : buf.readUnsignedInt();
+            default:
+                return buf.readLong();
+        }
+    }
+
     private String decodeDeviceId(ByteBuf buf) {
         String devId = "";
         for (int i = 0; i < 7; i++)
@@ -58,12 +72,37 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         return devId;
     }
 
-    private Double decodeSpeed(ByteBuf buf){
-        Double speed = (double)buf.readUnsignedShort();
+    private Double decodeSpeed(ByteBuf buf) {
+        Double speed = (double) buf.readUnsignedShort();
 
         speed = speed + (buf.readUnsignedByte() * 0.1);
 
-        return UnitsConverter.knotsFromKph( speed );
+        return UnitsConverter.knotsFromKph(speed);
+    }
+
+    private void decodePosition(Position position, ByteBuf buf) {
+
+        int hdop = buf.readUnsignedByte();
+        position.setValid(hdop > 0);
+        position.set(Position.KEY_HDOP, hdop);
+
+        position.setSpeed(decodeSpeed(buf));
+        position.setCourse(buf.readUnsignedShort());
+        position.setAltitude(buf.readShort());
+        position.setLongitude(buf.readInt() * 0.000001);
+        position.setLatitude(buf.readInt() * 0.000001);
+
+        position.setTime(decodeTime(buf));
+
+    }
+
+    private void decodeNetwork(Position position, ByteBuf buf) {
+        position.setNetwork(new Network(CellTower.from(
+                buf.readUnsignedShort(), //MCC
+                buf.readUnsignedShort(), //MNC
+                buf.readUnsignedShort(), //LAC
+                buf.readUnsignedShort()))); //CID
+        buf.readUnsignedByte(); // reserved
     }
 
     public static final int MSG_RSP_LCB = 3;
@@ -212,24 +251,11 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
                 position.set(Position.KEY_FUEL_LEVEL, fuelLevel);
 
                 position.set(Position.KEY_SATELLITES, satellites);
-                position.set("type","FRI");
-                int hdop = buf.readUnsignedByte();
-                position.setValid(hdop > 0);
-                position.set(Position.KEY_HDOP, hdop);
+                position.set("type", "FRI");
 
-                position.setSpeed(decodeSpeed(buf));
-                position.setCourse(buf.readUnsignedShort());
-                position.setAltitude(buf.readShort());
-                position.setLongitude(buf.readInt() * 0.000001);
-                position.setLatitude(buf.readInt() * 0.000001);
+                decodePosition(position, buf);
 
-                position.setTime(decodeTime(buf));
-
-                position.setNetwork(new Network(CellTower.from(
-                        buf.readUnsignedShort(), buf.readUnsignedShort(),
-                        buf.readUnsignedShort(), buf.readUnsignedShort())));
-
-                buf.readUnsignedByte(); // reserved
+                decodeNetwork(position, buf);
 
                 positions.add(position);
 
@@ -439,8 +465,10 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
     private Position decodeObd(Channel channel, SocketAddress remoteAddress, ByteBuf buf) {
 
         Position position = new Position(getProtocolName());
-        position.set("type","OBD");
+        position.set("type", "OBD");
+
         int type = buf.readUnsignedByte();
+
         boolean[] maskBite = toBinary(buf.readUnsignedInt(), 8);
 
         if (maskBite[maskBite.length - 1]) {
@@ -460,48 +488,37 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
         if (deviceSession == null) {
             return null;
         }
-        if (maskBite[maskBite.length - 8]) {
+        if (maskBite[maskBite.length - 8])
             buf.skipBytes(17); // vin num
-        }
+
         int reportType = buf.readUnsignedByte();
 
         boolean[] obdMask = toBinary(buf.readUnsignedInt(), 32);
 
-
         position.setDeviceId(deviceSession.getDeviceId());
 
-        if (obdMask[obdMask.length - 1]) {
+        if (obdMask[obdMask.length - 1])
             buf.skipBytes(17); // vin num
-        }
-        if (obdMask[obdMask.length - 2]) {
-            int obdConnect = buf.readUnsignedByte();
-            position.set("obdConnection", obdConnect);
-        }
-        if (obdMask[obdMask.length - 3]) {
-            int power = buf.readUnsignedShort();
-            position.set(Position.KEY_POWER, power);
-        }
-        if (obdMask[obdMask.length - 4]) {
+        if (obdMask[obdMask.length - 2])
+            position.set("obdConnection", buf.readUnsignedByte());
+        if (obdMask[obdMask.length - 3])
+            position.set(Position.KEY_POWER, readValue(buf, 2, false) * 0.001);
+        if (obdMask[obdMask.length - 4])
             position.set("supportPIDs", buf.readUnsignedInt());
-        }
         if (obdMask[obdMask.length - 5])
             position.set(Position.KEY_RPM, buf.readUnsignedShort());
         if (obdMask[obdMask.length - 6])
             position.set(Position.KEY_OBD_SPEED, buf.readUnsignedShort());
         if (obdMask[obdMask.length - 7])
             position.set(Position.KEY_COOLANT_TEMP, buf.readShort());
-        if (obdMask[obdMask.length - 8]) {
-            int fuelCons = buf.readUnsignedShort();
-            position.set(Position.KEY_FUEL_CONSUMPTION, fuelCons);
-        }
-
+        if (obdMask[obdMask.length - 8])
+            position.set(Position.KEY_FUEL_CONSUMPTION, buf.readUnsignedShort());
         if (obdMask[obdMask.length - 9])
             position.set(Position.KEY_DTCS, buf.readUnsignedShort());
         if (obdMask[obdMask.length - 10])
             position.set("milDistance", buf.readUnsignedShort());
         if (obdMask[obdMask.length - 11])
             position.set("milStatus", buf.readUnsignedByte());
-
         if (obdMask[obdMask.length - 12]) {
             int dtsNumbers = buf.readUnsignedByte();
             for (int i = 0; i < dtsNumbers; i++) {
@@ -514,33 +531,14 @@ public class Gl200BinaryProtocolDecoder extends BaseProtocolDecoder {
             position.set(Position.KEY_THROTTLE, buf.readUnsignedByte());
         if (obdMask[obdMask.length - 15])
             position.set(Position.KEY_ENGINE_LOAD, buf.readUnsignedByte());
-        if (obdMask[obdMask.length - 16]) {
+        if (obdMask[obdMask.length - 16])
             position.set(Position.KEY_FUEL_LEVEL, buf.readUnsignedByte());
-        }
-
-
-        if (obdMask[obdMask.length - 20]) {
+        if (obdMask[obdMask.length - 20])
             position.set("other", buf.readUnsignedShort());
-        }
-
-
-        if (obdMask[obdMask.length - 21]) {
-            buf.readUnsignedByte();
-            position.setValid(true);
-            position.setSpeed(decodeSpeed(buf));
-            position.setCourse(buf.readUnsignedShort());
-            position.setAltitude(buf.readShort());
-            position.setLongitude(buf.readInt() * 0.000001);
-            position.setLatitude(buf.readInt() * 0.000001);
-            position.setTime(decodeTime(buf));
-        }
-        if (obdMask[obdMask.length - 22]) {
-            position.setNetwork(new Network(CellTower.from(
-                    buf.readUnsignedShort(), buf.readUnsignedShort(),
-                    buf.readUnsignedShort(), buf.readUnsignedShort())));
-            buf.readUnsignedByte(); // reserved
-        }
-
+        if (obdMask[obdMask.length - 21])
+            decodePosition(position, buf);
+        if (obdMask[obdMask.length - 22])
+            decodeNetwork(position, buf);
         if (obdMask[obdMask.length - 23])
             position.set(Position.KEY_TOTAL_DISTANCE, buf.readUnsignedInt());
 
