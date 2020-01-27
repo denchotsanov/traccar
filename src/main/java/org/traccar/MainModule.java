@@ -170,7 +170,7 @@ public class MainModule extends AbstractModule {
                 case "ban":
                     return new BanGeocoder(cacheSize, addressFormat);
                 case "here":
-                    return new HereGeocoder(id, key, language, cacheSize, addressFormat);
+                    return new HereGeocoder(url, id, key, language, cacheSize, addressFormat);
                 case "mapmyindia":
                     return new MapmyIndiaGeocoder(url, key, cacheSize, addressFormat);
                 default:
@@ -191,7 +191,7 @@ public class MainModule extends AbstractModule {
                 case "google":
                     return new GoogleGeolocationProvider(key);
                 case "opencellid":
-                    return new OpenCellIdGeolocationProvider(key);
+                    return new OpenCellIdGeolocationProvider(url, key);
                 case "unwired":
                     return new UnwiredGeolocationProvider(url, key);
                 default:
